@@ -20,3 +20,9 @@ services:
         sync: false
       - key: DB_ECHO
         value: "false"
+      - key: JWT_SECRET
+        sync: false
+      - key: JWT_EXP_MINUTES
+        value: "120"
+      - key: FRONTEND_ORIGINS
+        sync: false

@@ -73,6 +73,8 @@ class Settings:
     db_password: str
     db_name: str
     db_echo: bool
+    jwt_secret: str
+    jwt_exp_minutes: int
 
     @property
     def sqlalchemy_database_url(self) -> str:
@@ -97,4 +99,6 @@ def get_settings() -> Settings:
         db_password=_read_setting("DB_PASSWORD", ""),
         db_name=_read_setting("DB_NAME", "recruitment_management_system"),
         db_echo=db_echo_raw in {"1", "true", "yes", "on"},
+        jwt_secret=_read_setting("JWT_SECRET", "change-this-dev-secret"),
+        jwt_exp_minutes=int(_read_setting("JWT_EXP_MINUTES", "120")),
     )

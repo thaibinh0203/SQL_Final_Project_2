@@ -1,0 +1,12 @@
+FROM mysql:8.4
+
+ENV MYSQL_DATABASE=railway
+
+COPY database/cloud_01_schema.sql /docker-entrypoint-initdb.d/01_schema.sql
+COPY database/cloud_seed_510.sql /docker-entrypoint-initdb.d/02_seed.sql
+COPY database/cloud_02_views.sql /docker-entrypoint-initdb.d/03_views.sql
+COPY database/cloud_03_routines.sql /docker-entrypoint-initdb.d/04_routines.sql
+COPY database/cloud_04_triggers.sql /docker-entrypoint-initdb.d/05_triggers.sql
+COPY database/cloud_06_admin_security_audit.sql /docker-entrypoint-initdb.d/06_admin_security_audit.sql
+
+EXPOSE 3306

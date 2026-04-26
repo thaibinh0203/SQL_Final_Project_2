@@ -6,3 +6,4 @@ faker>=37.0,<38.0
 streamlit-option-menu>=0.4,<1.0
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.32,<1.0
+python-multipart>=0.0.9,<1.0

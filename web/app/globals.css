@@ -1,0 +1,51 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  color: var(--foreground);
+  background:
+    linear-gradient(135deg, rgba(5, 150, 105, 0.08), transparent 30%),
+    linear-gradient(225deg, rgba(14, 165, 233, 0.10), transparent 34%),
+    radial-gradient(circle at top left, rgba(15, 23, 42, 0.05), transparent 32%),
+    #f8fafc;
+  font-family: "DM Sans", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer components {
+  .page-shell {
+    @apply min-h-screen p-4 sm:p-6 lg:p-8;
+  }
+
+  .surface {
+    @apply rounded-lg border border-line bg-white;
+  }
+
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-navy/10;
+  }
+}

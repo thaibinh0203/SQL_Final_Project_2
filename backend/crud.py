@@ -11,7 +11,7 @@ from functools import lru_cache
 import hashlib
 import hmac
 import secrets
-from typing import Any, Callable, Mapping, TypeVar
+from typing import Any, Callable, Mapping, Sequence, TypeVar
 
 from sqlalchemy import Select, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -24,10 +24,7 @@ from backend.models import (
     ApplicationStatusEnum,
     Candidate,
     Employer,
-    Interview,
-    InterviewResultEnum,
     JobPosition,
-    JobStatusEnum,
     RoleEnum,
 )
 
@@ -67,6 +64,40 @@ class AuthenticatedUser:
     display_name: str
 
 
+def auth_user_payload(user: AuthenticatedUser) -> dict[str, Any]:
+    """Return the public user payload shared by login/register responses."""
+
+    return {
+        "account_id": user.account_id,
+        "email": user.email,
+        "role": user.role,
+        "employer_id": user.employer_id,
+        "candidate_id": user.candidate_id,
+        "display_name": user.display_name,
+    }
+
+
+def validate_token_user(account_id: int, role: str, employer_id: int | None = None) -> None:
+    """Ensure a JWT identity is still allowed to use protected endpoints."""
+
+    def operation(session: Session) -> None:
+        account = session.get(Account, account_id)
+        if account is None:
+            raise AuthenticationError("Invalid access token.")
+        if _account_is_disabled(session, account_id):
+            raise AuthorizationError("This account has been disabled.")
+        if role == RoleEnum.EMPLOYER.value and employer_id is not None and _column_exists(session, "Employers", "ApprovalStatus"):
+            approval = _fetch_one(
+                session,
+                "SELECT ApprovalStatus FROM Employers WHERE EmployerID = :employer_id",
+                {"employer_id": employer_id},
+            )
+            if approval and approval.get("ApprovalStatus") != "Approved":
+                raise AuthorizationError("This employer account is not approved.")
+
+    _run_db(operation)
+
+
 def _serialize_value(value: Any) -> Any:
     """Convert database-native values into UI-friendly plain Python values."""
 
@@ -98,6 +129,10 @@ def _run_db(operation: Callable[[Session], T]) -> T:
     except IntegrityError as exc:
         raise ValidationError("The database rejected the operation due to invalid data.") from exc
     except SQLAlchemyError as exc:
+        original_message = str(getattr(exc, "orig", exc))
+        if "45000" in original_message:
+            safe_message = original_message.split(":", 1)[-1].strip() or "The database rejected the operation."
+            raise ValidationError(safe_message) from exc
         raise BackendError("A database error occurred while processing the request.") from exc
 
 
@@ -116,37 +151,165 @@ def _fetch_one(session: Session, sql: str, params: Mapping[str, Any] | None = No
     return None if row is None else _serialize_mapping(row)
 
 
-def _consume_remaining_result_sets(result: Any) -> None:
-    """Drain extra stored-procedure result sets so mysql-connector can commit safely."""
+def _table_exists(session: Session, table_name: str) -> bool:
+    """Return whether an optional migration table exists."""
 
-    cursor = getattr(result, "cursor", None)
-    if cursor is None:
+    row = _fetch_one(
+        session,
+        """
+        SELECT 1 AS ExistsFlag
+        FROM information_schema.tables
+        WHERE table_schema = DATABASE()
+          AND table_name = :table_name
+        LIMIT 1
+        """,
+        {"table_name": table_name},
+    )
+    return row is not None
+
+
+def _column_exists(session: Session, table_name: str, column_name: str) -> bool:
+    """Return whether an optional migration column exists."""
+
+    row = _fetch_one(
+        session,
+        """
+        SELECT 1 AS ExistsFlag
+        FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = :table_name
+          AND column_name = :column_name
+        LIMIT 1
+        """,
+        {"table_name": table_name, "column_name": column_name},
+    )
+    return row is not None
+
+
+def _account_is_disabled(session: Session, account_id: int) -> bool:
+    """Check AccountStatus when the admin/security migration has been imported."""
+
+    if not _column_exists(session, "Accounts", "AccountStatus"):
+        return False
+    row = _fetch_one(
+        session,
+        "SELECT AccountStatus FROM Accounts WHERE AccountID = :account_id",
+        {"account_id": account_id},
+    )
+    return bool(row and row.get("AccountStatus") == "Disabled")
+
+
+def _write_audit_log(
+    session: Session,
+    actor: AuthenticatedUser | None,
+    action: str,
+    entity_type: str,
+    entity_id: int | None = None,
+    details: str | None = None,
+) -> None:
+    """Persist an audit log when the optional AuditLogs table is available."""
+
+    if not _table_exists(session, "AuditLogs"):
         return
+    session.execute(
+        text(
+            """
+            INSERT INTO AuditLogs (
+                ActorAccountID,
+                ActorRole,
+                Action,
+                EntityType,
+                EntityID,
+                Details
+            )
+            VALUES (
+                :actor_account_id,
+                :actor_role,
+                :action,
+                :entity_type,
+                :entity_id,
+                :details
+            )
+            """
+        ),
+        {
+            "actor_account_id": None if actor is None else actor.account_id,
+            "actor_role": None if actor is None else actor.role,
+            "action": action,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "details": details,
+        },
+    )
+
+
+def _create_notification(
+    session: Session,
+    account_id: int | None,
+    title: str,
+    message: str,
+) -> None:
+    """Create a notification when the optional Notifications table is available."""
+
+    if account_id is None or not _table_exists(session, "Notifications"):
+        return
+    session.execute(
+        text(
+            """
+            INSERT INTO Notifications (AccountID, Title, Message)
+            VALUES (:account_id, :title, :message)
+            """
+        ),
+        {"account_id": account_id, "title": title, "message": message},
+    )
+
+
+def log_audit(
+    actor: AuthenticatedUser | None,
+    action: str,
+    entity_type: str,
+    entity_id: Any = None,
+    details: str | None = None,
+) -> None:
+    """Write an audit log outside the main operation when possible."""
 
     try:
-        while cursor.nextset():
-            # Drain rows from any trailing result sets produced by CALL statements.
-            cursor.fetchall()
-    except Exception:
-        # Some drivers raise once there are no further sets; the main operation already succeeded.
+        normalized_entity_id = None if entity_id in (None, "") else int(entity_id)
+
+        def operation(session: Session) -> None:
+            _write_audit_log(session, actor, action, entity_type, normalized_entity_id, details)
+
+        _run_db(operation)
+    except BackendError:
+        return
+    except (TypeError, ValueError):
         return
 
 
 def _call_procedure(
     session: Session,
-    sql: str,
-    params: Mapping[str, Any] | None = None,
+    procedure_name: str,
+    args: Sequence[Any],
 ) -> dict[str, Any]:
-    """Execute a stored procedure and normalize its first result row."""
+    """Execute a MySQL stored procedure and drain all result sets before commit."""
 
-    result = session.execute(text(sql), params or {})
+    raw_connection = session.connection().connection
+    dbapi_connection = (
+        getattr(raw_connection, "driver_connection", None)
+        or getattr(raw_connection, "dbapi_connection", None)
+        or raw_connection
+    )
+    cursor = dbapi_connection.cursor(dictionary=True)
     try:
-        rows = result.mappings().all()
-        payload = {} if not rows else _serialize_mapping(rows[0])
-        _consume_remaining_result_sets(result)
+        cursor.callproc(procedure_name, list(args))
+        payload: dict[str, Any] = {}
+        for stored_result in cursor.stored_results():
+            rows = stored_result.fetchall()
+            if rows and not payload:
+                payload = _serialize_mapping(rows[0])
         return payload
     finally:
-        result.close()
+        cursor.close()
 
 
 def _require_employer(session: Session, employer_id: int) -> Employer:
@@ -288,6 +451,8 @@ def authenticate_user(email: str, password: str) -> AuthenticatedUser:
         account = session.execute(statement).scalar_one_or_none()
         if account is None:
             raise AuthenticationError("Invalid email or password.")
+        if _account_is_disabled(session, account.account_id):
+            raise AuthorizationError("This account has been disabled.")
         if not _verify_password(submitted_password, account.password_hash, account.email):
             raise AuthenticationError("Invalid email or password.")
 
@@ -302,6 +467,14 @@ def authenticate_user(email: str, password: str) -> AuthenticatedUser:
             ).scalar_one_or_none()
             if employer is None:
                 raise NotFoundError("Employer profile is missing for this account.")
+            if _column_exists(session, "Employers", "ApprovalStatus"):
+                approval = _fetch_one(
+                    session,
+                    "SELECT ApprovalStatus FROM Employers WHERE EmployerID = :employer_id",
+                    {"employer_id": employer.employer_id},
+                )
+                if approval and approval.get("ApprovalStatus") != "Approved":
+                    raise AuthorizationError("This employer account is not approved.")
             return AuthenticatedUser(
                 account_id=account.account_id,
                 email=account.email,
@@ -309,6 +482,16 @@ def authenticate_user(email: str, password: str) -> AuthenticatedUser:
                 employer_id=employer.employer_id,
                 candidate_id=None,
                 display_name=employer.company_name,
+            )
+
+        if account.role == RoleEnum.ADMIN:
+            return AuthenticatedUser(
+                account_id=account.account_id,
+                email=account.email,
+                role=account.role.value,
+                employer_id=None,
+                candidate_id=None,
+                display_name="Administrator",
             )
 
         candidate = session.execute(
@@ -461,6 +644,11 @@ def register_employer_account(
         )
         session.add(employer)
         session.flush()
+        if _column_exists(session, "Employers", "ApprovalStatus"):
+            session.execute(
+                text("UPDATE Employers SET ApprovalStatus = 'Pending' WHERE EmployerID = :employer_id"),
+                {"employer_id": employer.employer_id},
+            )
 
         return AuthenticatedUser(
             account_id=account.account_id,
@@ -577,6 +765,17 @@ def _get_employer_dashboard_metrics_cached(employer_id: int) -> dict[str, Any]:
         )
         if metrics is None:
             raise NotFoundError("Dashboard metrics are not available for this employer.")
+        function_metrics = _fetch_one(
+            session,
+            """
+            SELECT
+                fn_employer_pass_rate(:employer_id) AS PassRate,
+                fn_average_interview_score(:employer_id) AS FunctionAverageInterviewScore
+            """,
+            {"employer_id": employer_id},
+        )
+        if function_metrics:
+            metrics.update(function_metrics)
         return metrics
 
     return _run_db(operation)
@@ -586,6 +785,89 @@ def get_employer_dashboard_metrics(employer_id: int) -> dict[str, Any]:
     """Return one row of dashboard metrics for the requesting employer only."""
 
     return deepcopy(_get_employer_dashboard_metrics_cached(employer_id))
+
+
+def list_employer_pass_rate_years(employer_id: int) -> list[dict[str, Any]]:
+    """Return years that have interview data for one employer."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        _require_employer(session, employer_id)
+        rows = _fetch_all(
+            session,
+            """
+            SELECT DISTINCT YEAR(InterviewDate) AS Year
+            FROM vw_interview_results
+            WHERE EmployerID = :employer_id
+            ORDER BY Year DESC
+            """,
+            {"employer_id": employer_id},
+        )
+        if rows:
+            return rows
+        return [{"Year": date.today().year}]
+
+    return _run_db(operation)
+
+
+@lru_cache(maxsize=256)
+def _list_employer_monthly_pass_rate_cached(employer_id: int, year: int) -> list[dict[str, Any]]:
+    """Return one row per month with pass-rate metrics for a selected year."""
+
+    if year < 2000 or year > 2100:
+        raise ValidationError("Trend year is outside the supported range.")
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        _require_employer(session, employer_id)
+        return _fetch_all(
+            session,
+            """
+            SELECT
+                :year AS Year,
+                months.MonthNumber,
+                months.MonthLabel,
+                COALESCE(monthly.TotalInterviews, 0) AS TotalInterviews,
+                COALESCE(monthly.PassedInterviews, 0) AS PassedInterviews,
+                CASE
+                    WHEN COALESCE(monthly.TotalInterviews, 0) = 0 THEN 0.00
+                    ELSE ROUND((monthly.PassedInterviews * 100.0) / monthly.TotalInterviews, 2)
+                END AS PassRate
+            FROM (
+                SELECT 1 AS MonthNumber, 'Jan' AS MonthLabel
+                UNION ALL SELECT 2, 'Feb'
+                UNION ALL SELECT 3, 'Mar'
+                UNION ALL SELECT 4, 'Apr'
+                UNION ALL SELECT 5, 'May'
+                UNION ALL SELECT 6, 'Jun'
+                UNION ALL SELECT 7, 'Jul'
+                UNION ALL SELECT 8, 'Aug'
+                UNION ALL SELECT 9, 'Sep'
+                UNION ALL SELECT 10, 'Oct'
+                UNION ALL SELECT 11, 'Nov'
+                UNION ALL SELECT 12, 'Dec'
+            ) AS months
+            LEFT JOIN (
+                SELECT
+                    MONTH(InterviewDate) AS MonthNumber,
+                    COUNT(*) AS TotalInterviews,
+                    SUM(CASE WHEN Result = 'Pass' THEN 1 ELSE 0 END) AS PassedInterviews
+                FROM vw_interview_results
+                WHERE EmployerID = :employer_id
+                  AND YEAR(InterviewDate) = :year
+                GROUP BY MONTH(InterviewDate)
+            ) AS monthly
+                ON monthly.MonthNumber = months.MonthNumber
+            ORDER BY months.MonthNumber
+            """,
+            {"employer_id": employer_id, "year": year},
+        )
+
+    return _run_db(operation)
+
+
+def list_employer_monthly_pass_rate(employer_id: int, year: int) -> list[dict[str, Any]]:
+    """Return monthly pass-rate trend for one employer and year."""
+
+    return deepcopy(_list_employer_monthly_pass_rate_cached(employer_id, year))
 
 
 @lru_cache(maxsize=128)
@@ -847,14 +1129,372 @@ def list_candidate_interviews(candidate_id: int) -> list[dict[str, Any]]:
     return deepcopy(_list_candidate_interviews_cached(candidate_id))
 
 
+def update_application_status(
+    employer_id: int,
+    application_id: int,
+    status: str,
+    actor: AuthenticatedUser | None = None,
+) -> dict[str, Any]:
+    """Allow employers to review or reject applications before interview scheduling."""
+
+    if status not in {"Pending", "Reviewed", "Rejected"}:
+        raise ValidationError("Application status must be Pending, Reviewed, or Rejected.")
+
+    def operation(session: Session) -> dict[str, Any]:
+        application = _require_application_for_employer(session, employer_id, application_id)
+        application.status = ApplicationStatusEnum(status)
+        session.add(application)
+        _write_audit_log(
+            session,
+            actor,
+            "UPDATE_APPLICATION_STATUS",
+            "Application",
+            application_id,
+            f"Set application status to {status}.",
+        )
+        return {
+            "ApplicationID": application_id,
+            "UpdatedStatus": status,
+            "Message": "Application status updated successfully.",
+        }
+
+    result = _run_db(operation)
+    clear_read_caches()
+    return result
+
+
+def list_notifications(account_id: int) -> list[dict[str, Any]]:
+    """Return notifications for the current account when the table exists."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        if not _table_exists(session, "Notifications"):
+            return []
+        return _fetch_all(
+            session,
+            """
+            SELECT NotificationID, AccountID, Title, Message, IsRead, CreatedAt
+            FROM Notifications
+            WHERE AccountID = :account_id
+            ORDER BY CreatedAt DESC
+            LIMIT 25
+            """,
+            {"account_id": account_id},
+        )
+
+    return _run_db(operation)
+
+
+def get_admin_system_metrics() -> dict[str, Any]:
+    """Return system-level metrics for the admin dashboard."""
+
+    def operation(session: Session) -> dict[str, Any]:
+        metrics = _fetch_one(session, "SELECT * FROM vw_admin_system_metrics")
+        if metrics is not None:
+            return metrics
+        return {
+            "TotalUsers": 0,
+            "TotalEmployers": 0,
+            "TotalCandidates": 0,
+            "TotalJobs": 0,
+            "TotalApplications": 0,
+            "TotalInterviews": 0,
+            "PassRate": 0,
+        }
+
+    return _run_db(operation)
+
+
+def list_admin_employers() -> list[dict[str, Any]]:
+    """Return all employer profiles for admin review."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        return _fetch_all(
+            session,
+            """
+            SELECT
+                e.EmployerID,
+                e.AccountID,
+                a.Email,
+                a.AccountStatus,
+                e.ApprovalStatus,
+                e.CompanyName,
+                e.ContactNumber,
+                e.Address,
+                e.Description
+            FROM Employers AS e
+            INNER JOIN Accounts AS a ON a.AccountID = e.AccountID
+            ORDER BY e.EmployerID DESC
+            """,
+        )
+
+    return _run_db(operation)
+
+
+def list_admin_candidates() -> list[dict[str, Any]]:
+    """Return all candidate profiles for admin review."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        return _fetch_all(
+            session,
+            """
+            SELECT
+                c.CandidateID,
+                c.AccountID,
+                a.Email,
+                a.AccountStatus,
+                c.FullName,
+                c.DateOfBirth,
+                c.PhoneNumber,
+                c.ResumeURL
+            FROM Candidates AS c
+            INNER JOIN Accounts AS a ON a.AccountID = c.AccountID
+            ORDER BY c.CandidateID DESC
+            """,
+        )
+
+    return _run_db(operation)
+
+
+def list_admin_jobs() -> list[dict[str, Any]]:
+    """Return all job positions for admin review."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        return _fetch_all(
+            session,
+            """
+            SELECT
+                jp.PositionID,
+                jp.EmployerID,
+                e.CompanyName,
+                jp.Title,
+                jp.JobDescription,
+                jp.Requirements,
+                jp.Status,
+                jp.PostedDate
+            FROM JobPositions AS jp
+            INNER JOIN Employers AS e ON e.EmployerID = jp.EmployerID
+            ORDER BY jp.PostedDate DESC
+            """,
+        )
+
+    return _run_db(operation)
+
+
+def list_admin_applications() -> list[dict[str, Any]]:
+    """Return all applications for admin review."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        return _fetch_all(
+            session,
+            """
+            SELECT *
+            FROM vw_candidate_application_tracker
+            ORDER BY ApplicationDate DESC
+            """,
+        )
+
+    return _run_db(operation)
+
+
+def list_admin_interviews() -> list[dict[str, Any]]:
+    """Return all interviews for admin review."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        return _fetch_all(
+            session,
+            """
+            SELECT *
+            FROM vw_interview_results
+            ORDER BY InterviewDate DESC
+            """,
+        )
+
+    return _run_db(operation)
+
+
+def set_employer_approval_status(
+    employer_id: int,
+    approval_status: str,
+    actor: AuthenticatedUser | None = None,
+) -> dict[str, Any]:
+    """Approve or reject an employer account."""
+
+    if approval_status not in {"Pending", "Approved", "Rejected"}:
+        raise ValidationError("Employer approval status must be Pending, Approved, or Rejected.")
+
+    def operation(session: Session) -> dict[str, Any]:
+        _require_employer(session, employer_id)
+        if not _column_exists(session, "Employers", "ApprovalStatus"):
+            raise ValidationError("Admin migration has not been imported.")
+        session.execute(
+            text("UPDATE Employers SET ApprovalStatus = :status WHERE EmployerID = :employer_id"),
+            {"status": approval_status, "employer_id": employer_id},
+        )
+        _write_audit_log(
+            session,
+            actor,
+            "SET_EMPLOYER_APPROVAL",
+            "Employer",
+            employer_id,
+            f"Set approval status to {approval_status}.",
+        )
+        return {
+            "EmployerID": employer_id,
+            "ApprovalStatus": approval_status,
+            "Message": "Employer approval updated successfully.",
+        }
+
+    result = _run_db(operation)
+    clear_read_caches()
+    return result
+
+
+def set_account_status(
+    account_id: int,
+    account_status: str,
+    actor: AuthenticatedUser | None = None,
+) -> dict[str, Any]:
+    """Enable or disable one account."""
+
+    if account_status not in {"Active", "Disabled"}:
+        raise ValidationError("Account status must be Active or Disabled.")
+
+    def operation(session: Session) -> dict[str, Any]:
+        account = session.get(Account, account_id)
+        if account is None:
+            raise NotFoundError("Account not found.")
+        if not _column_exists(session, "Accounts", "AccountStatus"):
+            raise ValidationError("Admin migration has not been imported.")
+        session.execute(
+            text("UPDATE Accounts SET AccountStatus = :status WHERE AccountID = :account_id"),
+            {"status": account_status, "account_id": account_id},
+        )
+        _write_audit_log(
+            session,
+            actor,
+            "SET_ACCOUNT_STATUS",
+            "Account",
+            account_id,
+            f"Set account status to {account_status}.",
+        )
+        return {
+            "AccountID": account_id,
+            "AccountStatus": account_status,
+            "Message": "Account status updated successfully.",
+        }
+
+    result = _run_db(operation)
+    clear_read_caches()
+    return result
+
+
+def admin_reset_password(
+    account_id: int,
+    new_password: str,
+    confirm_password: str,
+    actor: AuthenticatedUser | None = None,
+) -> dict[str, Any]:
+    """Reset an account password from the admin workspace."""
+
+    next_password = _validate_new_password(new_password, confirm_password)
+
+    def operation(session: Session) -> dict[str, Any]:
+        account = session.get(Account, account_id)
+        if account is None:
+            raise NotFoundError("Account not found.")
+        account.password_hash = _hash_password(next_password)
+        session.add(account)
+        _write_audit_log(
+            session,
+            actor,
+            "RESET_PASSWORD",
+            "Account",
+            account_id,
+            "Admin reset account password.",
+        )
+        return {
+            "AccountID": account_id,
+            "Message": "Password reset successfully.",
+        }
+
+    return _run_db(operation)
+
+
+def list_audit_logs() -> list[dict[str, Any]]:
+    """Return recent audit logs."""
+
+    def operation(session: Session) -> list[dict[str, Any]]:
+        if not _table_exists(session, "AuditLogs"):
+            return []
+        return _fetch_all(
+            session,
+            """
+            SELECT *
+            FROM AuditLogs
+            ORDER BY CreatedAt DESC
+            LIMIT 100
+            """,
+        )
+
+    return _run_db(operation)
+
+
+def get_data_quality_report() -> dict[str, Any]:
+    """Return data quality signals for admin cleanup."""
+
+    def operation(session: Session) -> dict[str, Any]:
+        duplicate_candidates = _fetch_all(
+            session,
+            """
+            SELECT FullName, PhoneNumber, COUNT(*) AS DuplicateCount
+            FROM Candidates
+            WHERE PhoneNumber IS NOT NULL
+            GROUP BY FullName, PhoneNumber
+            HAVING COUNT(*) > 1
+            ORDER BY DuplicateCount DESC
+            """,
+        )
+        suspicious_jobs = _fetch_all(
+            session,
+            """
+            SELECT PositionID, EmployerID, Title, Status, PostedDate
+            FROM JobPositions
+            WHERE LENGTH(JobDescription) < 25
+               OR Title LIKE '%test%'
+               OR Title LIKE '%spam%'
+            ORDER BY PostedDate DESC
+            """,
+        )
+        invalid_employers = _fetch_all(
+            session,
+            """
+            SELECT EmployerID, CompanyName, ContactNumber, Address
+            FROM Employers
+            WHERE CompanyName IS NULL
+               OR TRIM(CompanyName) = ''
+               OR ContactNumber IS NULL
+               OR TRIM(ContactNumber) = ''
+            ORDER BY EmployerID DESC
+            """,
+        )
+        return {
+            "duplicate_candidates": duplicate_candidates,
+            "suspicious_jobs": suspicious_jobs,
+            "invalid_employers": invalid_employers,
+        }
+
+    return _run_db(operation)
+
+
 def create_job_position(
     employer_id: int,
     title: str,
     job_description: str,
     requirements: str | None,
     status: str = "Open",
+    actor: AuthenticatedUser | None = None,
 ) -> dict[str, Any]:
-    """Create a job position directly so app writes avoid driver-specific CALL issues."""
+    """Create a job position through the database routine after validating input."""
 
     title_value = title.strip()
     description_value = job_description.strip()
@@ -867,81 +1507,65 @@ def create_job_position(
 
     def operation(session: Session) -> dict[str, Any]:
         _require_employer(session, employer_id)
-        position = JobPosition(
-            employer_id=employer_id,
-            title=title_value,
-            job_description=description_value,
-            requirements=(requirements or "").strip() or None,
-            status=JobStatusEnum(status),
-            posted_date=datetime.now(),
+        return _call_procedure(
+            session,
+            "sp_create_job_position",
+            (
+                employer_id,
+                title_value,
+                description_value,
+                (requirements or "").strip(),
+                status,
+            ),
         )
-        session.add(position)
-        session.flush()
-        return {
-            "PositionID": position.position_id,
-            "Message": "Job position created successfully.",
-        }
 
     result = _run_db(operation)
+    log_audit(actor, "CREATE_JOB", "JobPosition", result.get("PositionID"), f"Created job '{title_value}'.")
     clear_read_caches()
     return result
 
 
-def update_job_status(employer_id: int, position_id: int, status: str) -> dict[str, Any]:
+def update_job_status(
+    employer_id: int,
+    position_id: int,
+    status: str,
+    actor: AuthenticatedUser | None = None,
+) -> dict[str, Any]:
     """Update a job status only when the position belongs to the employer."""
 
     if status not in {"Open", "Closed"}:
         raise ValidationError("Job status must be Open or Closed.")
 
     def operation(session: Session) -> dict[str, Any]:
-        position = _require_position_for_employer(session, employer_id, position_id)
-        position.status = JobStatusEnum(status)
-        session.add(position)
-        return {
-            "PositionID": position.position_id,
-            "UpdatedStatus": position.status.value,
-            "Message": "Job status updated successfully.",
-        }
+        _require_position_for_employer(session, employer_id, position_id)
+        return _call_procedure(
+            session,
+            "sp_update_job_status",
+            (position_id, status),
+        )
 
     result = _run_db(operation)
+    log_audit(actor, "UPDATE_JOB_STATUS", "JobPosition", position_id, f"Set status to {status}.")
     clear_read_caches()
     return result
 
 
-def submit_application(candidate_id: int, position_id: int) -> dict[str, Any]:
-    """Submit an application directly so the frontend can write reliably with MySQL."""
+def submit_application(
+    candidate_id: int,
+    position_id: int,
+    actor: AuthenticatedUser | None = None,
+) -> dict[str, Any]:
+    """Submit an application through the database routine."""
 
     def operation(session: Session) -> dict[str, Any]:
-        _require_candidate(session, candidate_id)
-        position = session.get(JobPosition, position_id)
-        if position is None:
-            raise NotFoundError("Job position does not exist.")
-        if position.status != JobStatusEnum.OPEN:
-            raise ValidationError("Applications can only be submitted to open positions.")
-
-        existing_application = session.execute(
-            select(Application).where(
-                Application.candidate_id == candidate_id,
-                Application.position_id == position_id,
-            )
-        ).scalar_one_or_none()
-        if existing_application is not None:
-            raise ValidationError("Candidate has already applied for this job position.")
-
-        application = Application(
-            candidate_id=candidate_id,
-            position_id=position_id,
-            application_date=datetime.now(),
-            status=ApplicationStatusEnum.PENDING,
+        return _call_procedure(
+            session,
+            "sp_submit_application",
+            (candidate_id, position_id),
         )
-        session.add(application)
-        session.flush()
-        return {
-            "ApplicationID": application.application_id,
-            "Message": "Application submitted successfully.",
-        }
 
     result = _run_db(operation)
+    log_audit(actor, "SUBMIT_APPLICATION", "Application", result.get("ApplicationID"), f"Applied to position {position_id}.")
     clear_read_caches()
     return result
 
@@ -953,6 +1577,7 @@ def clear_read_caches() -> None:
     _get_candidate_profile_cached.cache_clear()
     _list_candidate_profiles_cached.cache_clear()
     _get_employer_dashboard_metrics_cached.cache_clear()
+    _list_employer_monthly_pass_rate_cached.cache_clear()
     _list_employer_job_application_summary_cached.cache_clear()
     _list_employer_job_positions_cached.cache_clear()
     _list_employer_applications_cached.cache_clear()
@@ -970,6 +1595,7 @@ def update_candidate_profile(
     date_of_birth: date | None,
     phone_number: str | None,
     resume_url: str | None,
+    actor: AuthenticatedUser | None = None,
 ) -> dict[str, Any]:
     """Update the requesting candidate's own profile with basic validation."""
 
@@ -994,6 +1620,7 @@ def update_candidate_profile(
         }
 
     result = _run_db(operation)
+    log_audit(actor, "UPDATE_CANDIDATE_PROFILE", "Candidate", candidate_id, "Updated candidate profile.")
     clear_read_caches()
     return result
 
@@ -1004,8 +1631,9 @@ def schedule_interview(
     interview_date: datetime,
     location_or_link: str | None,
     notes: str | None,
+    actor: AuthenticatedUser | None = None,
 ) -> dict[str, Any]:
-    """Schedule an interview directly while preserving employer ownership checks."""
+    """Schedule an interview through the database routine after ownership checks."""
 
     def operation(session: Session) -> dict[str, Any]:
         application = _require_application_for_employer(session, employer_id, application_id)
@@ -1013,29 +1641,41 @@ def schedule_interview(
             raise ValidationError("Interview date is required.")
         if interview_date <= application.application_date:
             raise ValidationError("Interview date must be after the application date.")
-
-        existing_interview = session.execute(
-            select(Interview).where(Interview.application_id == application_id)
-        ).scalar_one_or_none()
-        if existing_interview is not None:
-            raise ValidationError("Interview already exists for this application.")
-
-        interview = Interview(
-            application_id=application_id,
-            interview_date=interview_date,
-            location_or_link=(location_or_link or "").strip() or None,
-            result=InterviewResultEnum.PENDING,
-            score=None,
-            notes=(notes or "").strip() or None,
+        payload = _call_procedure(
+            session,
+            "sp_schedule_interview",
+            (
+                application_id,
+                interview_date,
+                (location_or_link or "").strip(),
+                (notes or "").strip(),
+            ),
         )
-        application.status = ApplicationStatusEnum.INTERVIEWING
-        session.add(interview)
-        session.add(application)
-        session.flush()
-        return {
-            "InterviewID": interview.interview_id,
-            "Message": "Interview scheduled successfully.",
-        }
+        candidate_account = _fetch_one(
+            session,
+            """
+            SELECT c.AccountID
+            FROM Applications AS a
+            INNER JOIN Candidates AS c ON c.CandidateID = a.CandidateID
+            WHERE a.ApplicationID = :application_id
+            """,
+            {"application_id": application_id},
+        )
+        _create_notification(
+            session,
+            None if candidate_account is None else int(candidate_account["AccountID"]),
+            "Interview scheduled",
+            f"An interview has been scheduled for application #{application_id}.",
+        )
+        _write_audit_log(
+            session,
+            actor,
+            "SCHEDULE_INTERVIEW",
+            "Application",
+            application_id,
+            f"Scheduled interview at {interview_date.isoformat(sep=' ')}.",
+        )
+        return payload
 
     result = _run_db(operation)
     clear_read_caches()
@@ -1048,8 +1688,9 @@ def record_interview_result(
     result: str,
     score: float | None,
     notes: str | None,
+    actor: AuthenticatedUser | None = None,
 ) -> dict[str, Any]:
-    """Record an interview outcome directly while leaving trigger-based status sync intact."""
+    """Record an interview outcome through the database routine."""
 
     if result not in {"Pending", "Pass", "Fail"}:
         raise ValidationError("Interview result must be Pending, Pass, or Fail.")
@@ -1059,31 +1700,42 @@ def record_interview_result(
         raise ValidationError("Final interview results require a score between 0 and 10.")
 
     def operation(session: Session) -> dict[str, Any]:
-        application = _require_application_for_employer(session, employer_id, application_id)
-        interview = session.execute(
-            select(Interview).where(Interview.application_id == application_id)
-        ).scalar_one_or_none()
-        if interview is None:
-            raise NotFoundError("Interview does not exist for this application.")
-
-        interview.result = InterviewResultEnum(result)
-        interview.score = None if result == "Pending" else score
-        cleaned_notes = (notes or "").strip()
-        if cleaned_notes:
-            interview.notes = cleaned_notes
-        if result == "Pass":
-            application.status = ApplicationStatusEnum.ACCEPTED
-        elif result == "Fail":
-            application.status = ApplicationStatusEnum.REJECTED
-        else:
-            application.status = ApplicationStatusEnum.INTERVIEWING
-        session.add(interview)
-        session.add(application)
-        return {
-            "ApplicationID": application_id,
-            "InterviewResult": interview.result.value,
-            "Message": "Interview result recorded successfully.",
-        }
+        _require_application_for_employer(session, employer_id, application_id)
+        payload = _call_procedure(
+            session,
+            "sp_record_interview_result",
+            (
+                application_id,
+                result,
+                None if result == "Pending" else score,
+                (notes or "").strip(),
+            ),
+        )
+        candidate_account = _fetch_one(
+            session,
+            """
+            SELECT c.AccountID
+            FROM Applications AS a
+            INNER JOIN Candidates AS c ON c.CandidateID = a.CandidateID
+            WHERE a.ApplicationID = :application_id
+            """,
+            {"application_id": application_id},
+        )
+        _create_notification(
+            session,
+            None if candidate_account is None else int(candidate_account["AccountID"]),
+            "Interview result updated",
+            f"Interview result for application #{application_id} is {result}.",
+        )
+        _write_audit_log(
+            session,
+            actor,
+            "RECORD_INTERVIEW_RESULT",
+            "Application",
+            application_id,
+            f"Recorded result {result} with score {score}.",
+        )
+        return payload
 
     result = _run_db(operation)
     clear_read_caches()

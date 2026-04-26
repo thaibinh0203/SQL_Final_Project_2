@@ -2,6 +2,12 @@
 .venv/
 __pycache__/
 *.pyc
+uploads/
+node_modules/
+.next/
+next-dev*.log
+.env.local
 presentation/
 report/
 Recruitment_Management_System_Comprehensive_Report.pdf
+.streamlit

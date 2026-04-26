@@ -23,6 +23,7 @@ class RoleEnum(str, Enum):
 
     EMPLOYER = "Employer"
     CANDIDATE = "Candidate"
+    ADMIN = "Admin"
 
 
 class JobStatusEnum(str, Enum):

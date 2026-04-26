@@ -11,6 +11,7 @@ This project contains a MySQL schema, SQL advanced objects, a SQLAlchemy backend
    - `database/03_routines.sql`
    - `database/04_triggers.sql`
    - `database/05_security.sql`
+   - `database/cloud_06_admin_security_audit.sql`
 2. Create a local `.env` file from `.env.example`.
 3. Install Python dependencies:
 
@@ -31,6 +32,8 @@ DB_USER=root
 DB_PASSWORD=
 DB_NAME=recruitment_management_system
 DB_ECHO=false
+JWT_SECRET=replace-with-a-long-random-secret
+JWT_EXP_MINUTES=120
 ```
 
 ## Run Backend Smoke Test
@@ -57,14 +60,19 @@ streamlit run frontend/app.py
 
 - Employer email example: `employer0001@example.com`
 - Candidate email example: `candidate0001@example.com`
+- Admin email example: `admin@example.com`
 - Password for all demo logins: `1`
+
+After importing `database/cloud_06_admin_security_audit.sql`, sign in as admin and reset the demo admin password before using a public deployment.
 
 ## Web Functionalities
 
 - Authentication:
   - Sign in with employer or candidate accounts
+  - Sign in with admin accounts
   - Register a new candidate account
-  - Register a new employer account
+  - Register a new employer account; new employers require admin approval before normal sign-in
+  - JWT-backed sessions with backend role checks for Employer, Candidate, and Admin
   - Change password from the account security section
 
 - Employer dashboard:
@@ -84,6 +92,7 @@ streamlit run frontend/app.py
   - View all applications for the employer's own job positions
   - Filter applications by status
   - Search applications by candidate, company, or position
+  - Move applications from `Pending` to `Reviewed` or `Rejected` without scheduling an interview
   - View applications ready for interview scheduling
   - View shortlisted candidates
   - Expand and inspect detailed applicant profiles, including personal details, resume link, application status, and interview information when available
@@ -102,6 +111,7 @@ streamlit run frontend/app.py
 
 - Candidate job board:
   - Browse all open job positions
+  - Open a dedicated job detail panel with description, requirements, company name, and apply action
   - Search open jobs by title, company, description, or requirements
   - Apply directly to eligible open positions
 
@@ -117,7 +127,22 @@ streamlit run frontend/app.py
 
 - Candidate profile management:
   - Update full name, phone number, resume URL, and optional date of birth
+  - Upload a CV file to the backend instead of only using an external resume URL
   - Manage account password from the profile section
+
+- Admin workspace:
+  - View all employers, candidates, jobs, applications, interviews, audit logs, and data quality signals
+  - Approve, reject, or move employer accounts back to pending review
+  - Enable or disable accounts and reset account passwords
+  - Review system metrics for total users, jobs, applications, interviews, and pass rate
+  - Review data quality checks for duplicate candidates, suspicious jobs, and invalid employer records
+
+- Operational safeguards:
+  - Backend reads the authenticated user from the JWT token and validates route ownership before data access
+  - Login endpoint uses an in-memory rate limit to reduce brute-force attempts
+  - Audit logs record important actions such as job creation, status changes, scheduling, and interview result recording
+  - Candidate notifications are created when an interview is scheduled or a result is recorded
+  - Frontend asks for confirmation before closing jobs, rejecting applications, and recording pass/fail results
 
 ## Current Structure
 
@@ -140,25 +165,31 @@ For cloud deployment, the recommended architecture is:
 
 - `Railway MySQL` as the managed relational database
 - `Render` as the globally accessible backend API host
-- `Streamlit Community Cloud` as the public dashboard host
+- `Vercel` as the modern Next.js frontend host
+- `Streamlit Community Cloud` as the legacy dashboard host if you still want to keep it available
 
 This separation is appropriate for academic and demonstration purposes because it preserves the current project stack while assigning one clear responsibility to each platform:
 
 - the database layer remains compatible with the MySQL-specific schema, views, routines, and triggers
-- the backend layer exposes HTTP endpoints through FastAPI without requiring the Streamlit interface to be rewritten
-- the dashboard layer remains lightweight and easy to publish from the same GitHub repository
+- the backend layer exposes HTTP endpoints through FastAPI for both read models and workflow routines
+- the frontend layer can be deployed independently as a polished React/Next.js web app
 
 The project already includes deployment-oriented files:
 
 - `backend/api.py`: FastAPI entrypoint for Render deployment
 - `render.yaml`: Render service definition
+- `web/`: Next.js frontend using Tailwind CSS, shadcn-style UI components, Recharts, and TanStack Table
 - `streamlit_app.py`: root Streamlit entrypoint for Community Cloud
 - `.streamlit/secrets.toml.example`: secrets template for Streamlit Cloud
+- `Dockerfile`: backend FastAPI container for Railway Docker deployment
+- `railway.toml`: Railway Docker build and health-check config
 - `database/cloud_01_schema.sql`
+- `database/cloud_00_reset.sql`
 - `database/cloud_seed_510.sql`
 - `database/cloud_02_views.sql`
 - `database/cloud_03_routines.sql`
 - `database/cloud_04_triggers.sql`
+- `database/cloud_06_admin_security_audit.sql`
 - `database/CLOUD_IMPORT_ORDER.md`
 
 ## Railway MySQL Deployment
@@ -182,12 +213,15 @@ The purpose of Railway in this architecture is to host the production database e
    - `RAILWAY_TCP_PROXY_PORT`
 5. Connect to the Railway database using MySQL Workbench or another MySQL client.
 6. Select the target schema, usually `railway`.
-7. Import the SQL files in this order:
+7. If you do not need the current data, run the destructive reset first:
+   - `database/cloud_00_reset.sql`
+8. Import the SQL files in this order:
    - `database/cloud_01_schema.sql`
    - `database/cloud_seed_510.sql`
    - `database/cloud_02_views.sql`
    - `database/cloud_03_routines.sql`
    - `database/cloud_04_triggers.sql`
+   - `database/cloud_06_admin_security_audit.sql`
 
 ### Verification
 
@@ -205,6 +239,42 @@ SELECT COUNT(*) FROM Interviews;
 ### Important Note
 
 `database/05_security.sql` is intentionally not part of the recommended Railway import workflow. Managed cloud MySQL environments often restrict role and privilege operations, and these statements are not required for the current application deployment.
+
+## Railway Docker Backend Deployment
+
+### Objective
+
+Use the root `Dockerfile` when you want Railway to build and run the FastAPI backend as a Docker service. This replaces the Render backend deployment for the API layer.
+
+### Procedure
+
+1. Push the repository to GitHub.
+2. In Railway, create a new service from the GitHub repository.
+3. Railway should detect the root `Dockerfile` and `railway.toml`.
+4. Add these backend environment variables:
+
+```env
+DB_HOST=YOUR_RAILWAY_MYSQL_HOST_OR_TCP_PROXY_DOMAIN
+DB_PORT=YOUR_RAILWAY_MYSQL_PORT_OR_TCP_PROXY_PORT
+DB_USER=YOUR_MYSQL_USER
+DB_PASSWORD=YOUR_MYSQL_PASSWORD
+DB_NAME=YOUR_MYSQL_DATABASE
+DB_ECHO=false
+JWT_SECRET=YOUR_LONG_RANDOM_SECRET
+JWT_EXP_MINUTES=120
+FRONTEND_ORIGINS=http://localhost:3000,https://your-frontend-domain
+```
+
+5. Deploy and verify:
+
+```text
+https://your-railway-api-domain/health
+https://your-railway-api-domain/docs
+```
+
+### Optional MySQL Docker Image
+
+`database/Dockerfile.mysql` can build a fresh seeded MySQL image from the cloud SQL files. Use this only for demos or experiments, and mount a Railway volume at `/var/lib/mysql` if you want the data to survive redeploys. For normal use, the Railway managed MySQL service is safer and easier to operate.
 
 ## Render Backend Deployment
 
@@ -246,6 +316,8 @@ DB_USER=YOUR_MYSQL_USER
 DB_PASSWORD=YOUR_MYSQL_PASSWORD
 DB_NAME=YOUR_MYSQL_DATABASE
 DB_ECHO=false
+JWT_SECRET=YOUR_LONG_RANDOM_SECRET
+JWT_EXP_MINUTES=120
 ```
 
 The included `render.yaml` file already expresses this deployment model and may be used directly.
@@ -258,6 +330,8 @@ After deployment, the following endpoints should be reachable:
 - `/health`
 - `/docs`
 - `/smoke-test`
+- `/auth/login`
+- `/jobs/open`
 
 Example:
 
@@ -265,11 +339,55 @@ Example:
 https://your-render-service.onrender.com/health
 ```
 
+Set `FRONTEND_ORIGINS` on Render after the Vercel frontend is created:
+
+```env
+FRONTEND_ORIGINS=https://your-vercel-app.vercel.app,http://localhost:3000
+```
+
+## Next.js Frontend Deployment
+
+### Objective
+
+The `web/` directory contains the modern frontend intended for Vercel. It calls the Render backend through REST, while the backend continues to use the MySQL views, functions, stored procedures, and triggers behind the API routes.
+
+### Local Development
+
+```powershell
+cd web
+npm install
+npm run dev
+```
+
+Create `web/.env.local`:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=https://your-render-service.onrender.com
+```
+
+### Vercel Deployment
+
+1. Push the repository to GitHub.
+2. Create a new Vercel project from the repository.
+3. Set the Vercel root directory to:
+
+```text
+web
+```
+
+4. Add the frontend environment variable:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=https://your-render-service.onrender.com
+```
+
+5. Redeploy the Render backend after setting `FRONTEND_ORIGINS` to the final Vercel URL.
+
 ## Streamlit Community Cloud Deployment
 
 ### Objective
 
-The purpose of Streamlit Community Cloud in this architecture is to publish the interactive employer and candidate dashboard as a public web application without changing the Streamlit-based frontend design.
+The Streamlit app is now optional. Keep it as a legacy dashboard if you still want the original interface available.
 
 ### Procedure
 
@@ -326,6 +444,8 @@ DB_USER=YOUR_MYSQL_USER
 DB_PASSWORD=YOUR_MYSQL_PASSWORD
 DB_NAME=YOUR_MYSQL_DATABASE
 DB_ECHO=false
+JWT_SECRET=YOUR_LONG_RANDOM_SECRET
+JWT_EXP_MINUTES=120
 ```
 
 ## Suggested Deployment Order
@@ -333,8 +453,9 @@ DB_ECHO=false
 For stability, deploy in the following sequence:
 
 1. Provision Railway MySQL.
-2. Import schema, seed data, views, routines, and triggers.
-3. Deploy the Render backend and verify `/health`.
-4. Deploy the Streamlit dashboard and verify login plus dashboard access.
+2. If resetting an existing Railway database, run `database/cloud_00_reset.sql`.
+3. Import schema, seed data, views, routines, triggers, and `cloud_06_admin_security_audit.sql`.
+4. Deploy the backend on Render or Railway Docker and verify `/health`.
+5. Deploy the Next.js frontend and set `NEXT_PUBLIC_API_BASE_URL` to the backend URL.
 
 This order is recommended because both application layers depend on a valid, preloaded database before they can function correctly.
