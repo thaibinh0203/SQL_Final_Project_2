@@ -2462,6 +2462,10 @@ function interviewColumns(): ColumnDef<AnyRecord>[] {
       cell: ({ row }) => <span className="text-slate">{shortText(row.original.LocationOrLink, 48)}</span>
     },
     {
+      header: "Notes",
+      cell: ({ row }) => <span className="text-slate">{shortText(row.original.Notes, 72)}</span>
+    },
+    {
       header: "Date",
       cell: ({ row }) => <span className="font-mono text-xs text-slate">{formatDate(row.original.InterviewDate)}</span>
     }

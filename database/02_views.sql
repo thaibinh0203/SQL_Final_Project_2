@@ -30,7 +30,8 @@ SELECT
     i.InterviewDate,
     i.LocationOrLink,
     i.Result AS InterviewResult,
-    i.Score AS InterviewScore
+    i.Score AS InterviewScore,
+    i.Notes
 FROM Applications AS a
 INNER JOIN Candidates AS c
     ON c.CandidateID = a.CandidateID

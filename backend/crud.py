@@ -1111,11 +1111,33 @@ def _list_candidate_interviews_cached(candidate_id: int) -> list[dict[str, Any]]
         return _fetch_all(
             session,
             """
-            SELECT *
-            FROM vw_candidate_application_tracker
-            WHERE CandidateID = :candidate_id
-              AND InterviewDate IS NOT NULL
-            ORDER BY InterviewDate DESC
+            SELECT
+                a.ApplicationID,
+                a.CandidateID,
+                c.FullName AS CandidateName,
+                a.PositionID,
+                jp.Title AS PositionTitle,
+                jp.EmployerID,
+                e.CompanyName,
+                a.ApplicationDate,
+                a.Status AS ApplicationStatus,
+                i.InterviewID,
+                i.InterviewDate,
+                i.LocationOrLink,
+                i.Result AS InterviewResult,
+                i.Score AS InterviewScore,
+                i.Notes
+            FROM Interviews AS i
+            INNER JOIN Applications AS a
+                ON a.ApplicationID = i.ApplicationID
+            INNER JOIN Candidates AS c
+                ON c.CandidateID = a.CandidateID
+            INNER JOIN JobPositions AS jp
+                ON jp.PositionID = a.PositionID
+            INNER JOIN Employers AS e
+                ON e.EmployerID = jp.EmployerID
+            WHERE a.CandidateID = :candidate_id
+            ORDER BY i.InterviewDate DESC
             """,
             {"candidate_id": candidate_id},
         )

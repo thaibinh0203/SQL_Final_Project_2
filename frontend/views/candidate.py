@@ -71,7 +71,7 @@ def _candidate_application_activity_rows(records: list[dict[str, object]]) -> li
     ]
 
 
-def _candidate_interview_activity_rows(records: list[dict[str, object]]) -> list[dict[str, str]]:
+def _candidate_interview_activity_rows(records: list[dict[str, object]]) -> list[dict[str, object]]:
     """Map candidate interviews into the reference activity-table shape."""
 
     return [
@@ -84,6 +84,7 @@ def _candidate_interview_activity_rows(records: list[dict[str, object]]) -> list
             "status": str(row.get("InterviewResult") or row.get("ApplicationStatus") or "Pending"),
             "branch": str(row.get("CompanyName") or "Company"),
             "time": str(row.get("InterviewDate") or "")[:16] or "-",
+            "details": [f"Notes: {_short_text(row.get('Notes') or 'No notes', 78)}"],
         }
         for row in records
     ]
