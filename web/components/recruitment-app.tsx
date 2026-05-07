@@ -254,6 +254,28 @@ function AuthScreen({
             A production-style frontend for the FastAPI backend on Render, wired to the Railway MySQL workflows.
           </p>
         </div>
+        <div className="my-8 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-lg border border-line bg-white/80 p-5">
+            <div className="mb-4 inline-flex rounded bg-info/10 p-2 text-info">
+              <Building2 size={18} />
+            </div>
+            <h2 className="font-heading text-lg font-extrabold text-navy">Employer workspace</h2>
+            <p className="mt-2 text-sm leading-6 text-slate">
+              Create and manage job posts, review incoming applications, schedule interviews, record pass or fail
+              results, and monitor hiring performance from a company-owned dashboard.
+            </p>
+          </div>
+          <div className="rounded-lg border border-line bg-white/80 p-5">
+            <div className="mb-4 inline-flex rounded bg-sage/10 p-2 text-sage">
+              <UserRound size={18} />
+            </div>
+            <h2 className="font-heading text-lg font-extrabold text-navy">Candidate workspace</h2>
+            <p className="mt-2 text-sm leading-6 text-slate">
+              Browse open positions, submit applications, track interview schedules and outcomes, receive updates,
+              and keep profile details or CV links ready for recruiters.
+            </p>
+          </div>
+        </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Feature icon={<BriefcaseBusiness size={18} />} title="Jobs" copy="Publish, close, and inspect positions." />
           <Feature icon={<Users size={18} />} title="Pipeline" copy="Review applicants and shortlist candidates." />
