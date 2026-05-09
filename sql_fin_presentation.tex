@@ -1,0 +1,255 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usetheme{Madrid}
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+\title{Recruitment Management System}
+\subtitle{MySQL Database Project Presentation}
+\author{Thai Thanh Binh -- 11245848}
+\institute{National Economics University -- DATCOM Lab}
+\date{2026}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Project Background}
+  \begin{itemize}
+    \item Recruitment is data-intensive: employers publish jobs, candidates apply, recruiters track status, and interviewers evaluate outcomes.
+    \item Manual tracking can become slow, inconsistent, and difficult to audit.
+    \item The project builds a database-driven recruitment system using MySQL as the core DBMS.
+    \item The system covers candidates, employers, job positions, applications, interviews, reports, security, administration, and a working web application.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Project Objectives}
+  \begin{itemize}
+    \item Design a normalized relational database for recruitment data.
+    \item Implement MySQL constraints, indexes, views, stored procedures, functions, and triggers.
+    \item Build REST APIs for recruitment workflows using FastAPI.
+    \item Build a modern web interface for candidates, employers, and administrators.
+    \item Add authentication, authorization, ownership checks, audit logs, and cloud deployment support.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{User Roles and Scope}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.32\textwidth}
+      \textbf{Candidates}
+      \begin{itemize}
+        \item Browse open jobs.
+        \item Submit applications.
+        \item Track applications and interviews.
+        \item Manage profile and resume.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \textbf{Employers}
+      \begin{itemize}
+        \item Create and close jobs.
+        \item Review applicants.
+        \item Schedule interviews.
+        \item Record results and scores.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \textbf{Administrators}
+      \begin{itemize}
+        \item Monitor all system data.
+        \item Approve or reject employers.
+        \item Reset and disable accounts.
+        \item Review audit and data quality.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Functional Requirements}
+  \begin{itemize}
+    \item \textbf{Candidate management:} store profile details, resume references, and application history.
+    \item \textbf{Employer management:} store company profile, approval status, contact information, and account reference.
+    \item \textbf{Job posting:} employers create, update, close, and view company-owned job positions.
+    \item \textbf{Application tracking:} candidates apply to jobs; employers track applications for their own postings.
+    \item \textbf{Interview workflow:} employers schedule interviews, record result, score, and notes.
+    \item \textbf{Reporting and admin:} dashboards, metrics, account control, audit logs, and data quality checks.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Database Entity Model}
+  \begin{itemize}
+    \item The system uses eight main entities:
+      \begin{itemize}
+        \item Accounts, Employers, Candidates, JobPositions
+        \item Applications, Interviews, AuditLogs, Notifications
+      \end{itemize}
+    \item \texttt{Accounts} stores authentication identity and role information.
+    \item \texttt{Applications} connects candidates to job positions.
+    \item \texttt{Interviews} stores interview schedule, location, result, score, and notes.
+    \item \texttt{AuditLogs} and \texttt{Notifications} support administration and user updates.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Main Relationship Design}
+  \begin{itemize}
+    \item One account can own one employer profile or one candidate profile.
+    \item One employer can post many job positions.
+    \item One candidate can submit many applications.
+    \item One job position can receive many applications.
+    \item One application can have zero or one interview.
+    \item One account can receive many notifications and can be linked to many audit log records.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Database Integrity Rules}
+  \begin{itemize}
+    \item Primary keys identify every row in the core tables.
+    \item Foreign keys enforce ownership and workflow relationships:
+      \begin{itemize}
+        \item Employers to Accounts, Candidates to Accounts
+        \item JobPositions to Employers
+        \item Applications to Candidates and JobPositions
+        \item Interviews to Applications
+      \end{itemize}
+    \item Unique constraints prevent duplicate emails, duplicate profile ownership, duplicate applications, and multiple interviews for one application.
+    \item Check constraint restricts interview scores to the 0--10 range.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Indexes and Query Performance}
+  \begin{itemize}
+    \item Indexes are used on columns frequently involved in filtering, joining, and reporting.
+    \item Account email lookup supports login and duplicate registration checks.
+    \item Job status index supports candidate browsing of open positions.
+    \item Application status index supports employer pipeline filtering.
+    \item Interview date index supports calendar views, upcoming interviews, and monthly reports.
+    \item Primary keys and unique constraints also provide implicit indexes in MySQL.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Views for Reporting}
+  \begin{itemize}
+    \item \texttt{vw\_open\_job\_positions}: jobs visible to candidates.
+    \item \texttt{vw\_candidate\_application\_tracker}: application status with job and employer information.
+    \item \texttt{vw\_shortlisted\_candidates}: candidates already moving through interview or accepted stages.
+    \item \texttt{vw\_job\_application\_summary}: per-position application and outcome summary.
+    \item \texttt{vw\_interview\_results}: interview data joined with application, candidate, job, and employer details.
+    \item \texttt{vw\_admin\_system\_metrics}: system-wide dashboard metrics for admins.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Stored Procedures}
+  \begin{itemize}
+    \item \texttt{sp\_create\_job\_position}: validates employer, title, description, and status before inserting a job.
+    \item \texttt{sp\_update\_job\_status}: validates job existence and updates open or closed state.
+    \item \texttt{sp\_submit\_application}: validates candidate, open job status, and duplicate application rules.
+    \item \texttt{sp\_schedule\_interview}: validates application existence, duplicate interview, and interview date.
+    \item \texttt{sp\_record\_interview\_result}: validates result and score before updating interview outcome.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Functions and Triggers}
+  \begin{columns}[T,onlytextwidth]
+    \begin{column}{0.48\textwidth}
+      \textbf{User-defined functions}
+      \begin{itemize}
+        \item Count applications by position.
+        \item Count applications by candidate.
+        \item Calculate employer pass rate.
+        \item Calculate average interview score.
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \textbf{Triggers}
+      \begin{itemize}
+        \item Run after interview insert or update.
+        \item \texttt{Pass} changes application to \texttt{Accepted}.
+        \item \texttt{Fail} changes application to \texttt{Rejected}.
+        \item \texttt{Pending} keeps application in \texttt{Interviewing}.
+      \end{itemize}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{Application Architecture}
+  \begin{center}
+    \Large
+    Vercel Next.js Frontend\\[0.7em]
+    $\Downarrow$ REST API + JWT\\[0.7em]
+    Render FastAPI Backend\\[0.7em]
+    $\Downarrow$ SQLAlchemy + MySQL Connector\\[0.7em]
+    Railway MySQL Database
+  \end{center}
+  \vspace{0.4em}
+  \begin{itemize}
+    \item The frontend never connects directly to the database.
+    \item All data access goes through the backend for validation, authorization, and audit logging.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Backend Implementation}
+  \begin{itemize}
+    \item \texttt{api.py}: FastAPI routes and request or response models.
+    \item \texttt{crud.py}: database operations and stored procedure calls.
+    \item \texttt{models.py}: SQLAlchemy models for database tables.
+    \item \texttt{config.py}: environment variables for database, JWT, and CORS.
+    \item \texttt{security.py}: JWT creation, verification, role checks, and authentication helpers.
+    \item \texttt{db.py}: database engine and session scope.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Frontend Implementation}
+  \begin{itemize}
+    \item The modern frontend is built with Next.js and communicates with FastAPI through REST APIs.
+    \item Candidate pages cover job board, application tracking, interview tracking, notifications, profile update, and CV upload.
+    \item Employer pages cover dashboard metrics, job management, application review, interview scheduling, result recording, and performance analytics.
+    \item Admin pages cover system metrics, employer approval, account status, password reset, audit logs, and data quality reports.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Security and Administration}
+  \begin{itemize}
+    \item Passwords are stored as hashes, not plain text.
+    \item JWT stores authenticated account identity, role, and expiration time.
+    \item Backend verifies token signature and expiration before protected operations.
+    \item Role-based access control separates candidate, employer, and admin capabilities.
+    \item Ownership checks prevent users from accessing another employer's jobs or another candidate's profile.
+    \item Audit logs record important actions for later inspection.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Cloud Deployment}
+  \begin{itemize}
+    \item \textbf{Railway:} hosts the MySQL database.
+    \item \textbf{Render:} hosts the FastAPI backend service.
+    \item \textbf{Vercel:} hosts the Next.js frontend.
+    \item Environment variables store database host, port, username, password, database name, CORS origins, JWT secret, and token lifetime.
+    \item The deployment design keeps database credentials out of the frontend and source code.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Testing and Evaluation}
+  \begin{itemize}
+    \item Functional tests cover login, registration, job creation, application submission, interview scheduling, and result recording.
+    \item Database tests verify row counts, foreign-key behavior, duplicate prevention, score validation, and trigger updates.
+    \item Backend smoke test checks database connection and core read paths.
+    \item Evaluation confirms the system satisfies database design, workflow, security, and deployment requirements.
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion and Future Work}
+  \begin{itemize}
+    \item The project implements an end-to-end recruitment management system with a MySQL-centered design.
+    \item It combines relational integrity, advanced SQL objects, REST APIs, role-based workflows, and cloud deployment.
+    \item Future work can add finer HR/interviewer roles, richer candidate matching, more analytics, messaging, and stronger production observability.
+  \end{itemize}
+  \vspace{0.8em}
+  \begin{block}{Main Takeaway}
+    The database is not only storage; it is the source of truth for workflow consistency, validation, reporting, and auditability.
+  \end{block}
+\end{frame}
+
+\end{document}
