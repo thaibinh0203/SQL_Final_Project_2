@@ -1,0 +1,64 @@
+name: MySQL Backup
+
+on:
+  schedule:
+    # GitHub cron uses UTC. 16:00 UTC is 23:00 in Vietnam time.
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Export Railway MySQL backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Install MySQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y default-mysql-client gzip
+
+      - name: Create compressed database backup
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DB_HOST}" ] || [ -z "${DB_PORT}" ] || [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ] || [ -z "${DB_NAME}" ]; then
+            echo "Missing one or more database secrets: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME."
+            exit 1
+          fi
+
+          mkdir -p backups
+          BACKUP_FILE="backups/recruitment_mysql_backup_$(date -u +%Y%m%d_%H%M%S)_utc.sql.gz"
+
+          MYSQL_PWD="${DB_PASSWORD}" mysqldump \
+            --host="${DB_HOST}" \
+            --port="${DB_PORT}" \
+            --user="${DB_USER}" \
+            --protocol=TCP \
+            --single-transaction \
+            --routines \
+            --triggers \
+            --no-tablespaces \
+            --set-gtid-purged=OFF \
+            "${DB_NAME}" \
+            | gzip -9 > "${BACKUP_FILE}"
+
+          echo "BACKUP_FILE=${BACKUP_FILE}" >> "$GITHUB_ENV"
+          echo "Created ${BACKUP_FILE}"
+
+      - name: Upload backup artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mysql-backup-${{ github.run_id }}
+          path: ${{ env.BACKUP_FILE }}
+          if-no-files-found: error
+          retention-days: 7

@@ -11,3 +11,8 @@ presentation/
 report/
 Recruitment_Management_System_Comprehensive_Report.pdf
 .streamlit
+backups/
+database/backups/
+database/backup/output/
+*.backup.sql
+*.backup.sql.gz
