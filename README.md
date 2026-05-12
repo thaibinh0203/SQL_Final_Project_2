@@ -1,19 +1,122 @@
 # Recruitment Management System
 
-This project contains a MySQL schema, SQL advanced objects, a SQLAlchemy backend, and a Streamlit frontend for employer and candidate workflows.
+A full-stack recruitment management system for SQL Final Project 2. The project combines a MySQL database, FastAPI backend, Next.js frontend, optional legacy Streamlit interface, and cloud deployment support.
 
-## Setup
+The system supports candidate registration, employer job posting, application tracking, interview scheduling, interview results, dashboards, admin controls, audit logs, notifications, and automated MySQL backup through GitHub Actions.
 
-1. Create and load the database scripts in this order:
-   - `database/init.sql`
-   - `database/seed_510.sql`
-   - `database/02_views.sql`
-   - `database/03_routines.sql`
-   - `database/04_triggers.sql`
-   - `database/05_security.sql`
-   - `database/cloud_06_admin_security_audit.sql`
-2. Create a local `.env` file from `.env.example`.
-3. Install Python dependencies:
+## Tech Stack
+
+| Layer | Technologies |
+| --- | --- |
+| Database | MySQL, SQL schema, constraints, indexes, views, stored procedures, user-defined functions, triggers |
+| Backend | Python 3, FastAPI, Uvicorn, SQLAlchemy, mysql-connector-python, Pydantic-style request models |
+| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS, TanStack Table, Recharts, Lucide React |
+| Legacy UI | Streamlit, pandas, streamlit-option-menu |
+| Deployment | Railway MySQL, Render backend, Vercel frontend, optional Railway Docker backend |
+| Operations | GitHub Actions cron backup, PowerShell restore script |
+
+## Main Features
+
+### Authentication and Security
+
+- Email/password authentication.
+- Password hashing with PBKDF2-SHA256, random salt, and 240,000 iterations.
+- JWT-based API sessions.
+- Role-based access control for `Admin`, `Employer`, and `Candidate`.
+- Backend ownership checks to prevent users from accessing another user's data.
+- Login rate limiting to reduce brute-force attempts.
+
+### Candidate Workspace
+
+- Browse all open job positions.
+- Search jobs by title, company, description, or requirements.
+- View job details before applying.
+- Submit applications to open positions.
+- Track application status.
+- View scheduled interviews, interview location/link, result, score, and employer notes.
+- Update profile information and resume URL or upload a CV file.
+- Change account password.
+- View notifications created when interviews are scheduled or results are updated.
+
+### Employer Workspace
+
+- Create job positions.
+- Open or close job positions.
+- View applications for employer-owned jobs.
+- Search and filter applications.
+- Review, reject, or shortlist applications.
+- Schedule interviews with date, location/link, and notes.
+- Record interview result, score, and notes.
+- View dashboards for total jobs, open jobs, applications, interviews, pass/fail counts, average score, and hiring trends.
+
+### Admin Workspace
+
+- View all employers, candidates, jobs, applications, interviews, audit logs, and data quality signals.
+- Approve, reject, or move employer accounts back to pending review.
+- Enable or disable accounts.
+- Reset account passwords.
+- Review system metrics such as total users, jobs, applications, interviews, and pass rate.
+- Inspect suspicious jobs, duplicate candidates, and invalid employer records.
+
+### Database Features
+
+- Normalized relational schema for accounts, employers, candidates, job positions, applications, interviews, notifications, and audit logs.
+- Primary keys, foreign keys, unique constraints, check constraints, and enum status fields.
+- Indexes for job status, application status, and interview date.
+- Views for open jobs, candidate application tracking, shortlisted candidates, job application summaries, interview results, employer dashboard metrics, and admin metrics.
+- Stored procedures for job creation, job status updates, application submission, interview scheduling, and interview result recording.
+- User-defined functions for application counts, candidate application counts, employer pass rate, and average interview score.
+- Triggers that synchronize `Applications.Status` with `Interviews.Result`.
+
+## Project Structure
+
+```text
+backend/
+  api.py                 FastAPI routes and request models
+  config.py              Environment-backed settings
+  crud.py                Database workflows, validation, auth helpers, audit/notification helpers
+  db.py                  SQLAlchemy engine and session scope
+  models.py              SQLAlchemy ORM models
+  security.py            JWT helpers
+  smoke_test.py          Minimal backend verification
+
+database/
+  cloud_00_reset.sql                 Optional destructive reset script
+  cloud_01_schema.sql                Cloud schema, constraints, and indexes
+  cloud_seed_510.sql                 Seed dataset
+  cloud_02_views.sql                 Views
+  cloud_03_routines.sql              Stored procedures and functions
+  cloud_04_triggers.sql              Triggers
+  cloud_06_admin_security_audit.sql  Admin, audit, and notification extension
+  CLOUD_IMPORT_ORDER.md              Cloud import instructions
+  backup/
+    README.md              Backup/recovery documentation
+    restore_mysql.ps1      Manual restore script
+
+web/
+  app/                   Next.js app router files
+  components/            React UI components
+  lib/                   API client, shared types, utilities
+  package.json           Next.js dependencies and scripts
+
+frontend/
+  app.py                 Legacy Streamlit entrypoint
+  pages/                 Legacy Streamlit pages
+  views/                 Legacy Streamlit view helpers
+
+.github/workflows/
+  mysql-backup.yml       GitHub Actions cron database backup
+
+render.yaml              Render backend deployment definition
+railway.toml             Railway Docker backend config
+Dockerfile               Backend Dockerfile
+docker-compose.yml       Local MySQL support
+requirements.txt         Python dependencies
+```
+
+## Local Setup
+
+### 1. Install Python dependencies
 
 ```powershell
 python -m venv .venv
@@ -21,211 +124,63 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Environment Variables
+### 2. Install web dependencies
 
-Example `.env`:
+```powershell
+cd web
+npm install
+cd ..
+```
+
+### 3. Configure environment variables
+
+Create a local `.env` file in the project root:
 
 ```env
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_USER=root
-DB_PASSWORD=
+DB_PASSWORD=YOUR_LOCAL_PASSWORD
 DB_NAME=recruitment_management_system
 DB_ECHO=false
 JWT_SECRET=replace-with-a-long-random-secret
 JWT_EXP_MINUTES=120
+FRONTEND_ORIGINS=http://localhost:3000
 ```
 
-## Run Backend Smoke Test
+Create `web/.env.local`:
 
-```powershell
-python -m backend.smoke_test
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-This verifies:
-- database connection
-- employer login
-- candidate login
-- dashboard query access
-- open job listing access
-- candidate application/interview access
+## Database Setup
 
-## Run Streamlit App
+For local development, import the SQL files in this order:
 
-```powershell
-streamlit run frontend/app.py
+```text
+database/init.sql
+database/seed_510.sql
+database/02_views.sql
+database/03_routines.sql
+database/04_triggers.sql
+database/05_security.sql
+database/cloud_06_admin_security_audit.sql
 ```
 
-## Demo Login
+For Railway/cloud deployment, use the cloud scripts:
 
-- Employer email example: `employer0001@example.com`
-- Candidate email example: `candidate0001@example.com`
-- Admin email example: `admin@example.com`
-- Password for all demo logins: `1`
+```text
+database/cloud_00_reset.sql             optional, destructive
+database/cloud_01_schema.sql
+database/cloud_seed_510.sql
+database/cloud_02_views.sql
+database/cloud_03_routines.sql
+database/cloud_04_triggers.sql
+database/cloud_06_admin_security_audit.sql
+```
 
-After importing `database/cloud_06_admin_security_audit.sql`, sign in as admin and reset the demo admin password before using a public deployment.
-
-## Web Functionalities
-
-- Authentication:
-  - Sign in with employer or candidate accounts
-  - Sign in with admin accounts
-  - Register a new candidate account
-  - Register a new employer account; new employers require admin approval before normal sign-in
-  - JWT-backed sessions with backend role checks for Employer, Candidate, and Admin
-  - Change password from the account security section
-
-- Employer dashboard:
-  - View company-level metrics such as total jobs, open jobs, applications, interviews, pass/fail counts, and average interview score
-  - View recent applications in a dashboard activity table
-  - View hiring trend charts for applications by position, scheduled interviews by month, and pass rate
-  - Navigate quickly to job management from the dashboard
-
-- Employer job management:
-  - Create new job positions
-  - Update job status between `Open` and `Closed`
-  - View all owned positions
-  - Inspect a job snapshot showing applicant count, pass/fail/pending interview counts, average score, and current job status
-  - View per-position interview outcome ratios
-
-- Employer application management:
-  - View all applications for the employer's own job positions
-  - Filter applications by status
-  - Search applications by candidate, company, or position
-  - Move applications from `Pending` to `Reviewed` or `Rejected` without scheduling an interview
-  - View applications ready for interview scheduling
-  - View shortlisted candidates
-  - Expand and inspect detailed applicant profiles, including personal details, resume link, application status, and interview information when available
-
-- Employer interview management:
-  - View new applicants who do not yet have an interview scheduled
-  - Schedule interviews for valid applications
-  - Record interview results with pass, fail, pending, score, and notes
-  - View full interview history with candidate, application, score, result, location/link, and interview date
-
-- Employer performance analytics:
-  - View application summaries by job position
-  - Rank positions by application volume, accepted count, interviewing count, or average interview score
-  - Visualize interview outcome distributions with chart-based summaries
-  - Review company-wide hiring outcome ratios
-
-- Candidate job board:
-  - Browse all open job positions
-  - Open a dedicated job detail panel with description, requirements, company name, and apply action
-  - Search open jobs by title, company, description, or requirements
-  - Apply directly to eligible open positions
-
-- Candidate application tracking:
-  - View all submitted applications
-  - Track current application status for each submission
-  - View company, position, and application date in a structured activity table
-
-- Candidate interview tracking:
-  - View all scheduled interviews
-  - View upcoming interviews separately
-  - Review interview date, company, result, and related application information
-
-- Candidate profile management:
-  - Update full name, phone number, resume URL, and optional date of birth
-  - Upload a CV file to the backend instead of only using an external resume URL
-  - Manage account password from the profile section
-
-- Admin workspace:
-  - View all employers, candidates, jobs, applications, interviews, audit logs, and data quality signals
-  - Approve, reject, or move employer accounts back to pending review
-  - Enable or disable accounts and reset account passwords
-  - Review system metrics for total users, jobs, applications, interviews, and pass rate
-  - Review data quality checks for duplicate candidates, suspicious jobs, and invalid employer records
-
-- Operational safeguards:
-  - Backend reads the authenticated user from the JWT token and validates route ownership before data access
-  - Login endpoint uses an in-memory rate limit to reduce brute-force attempts
-  - Audit logs record important actions such as job creation, status changes, scheduling, and interview result recording
-  - Candidate notifications are created when an interview is scheduled or a result is recorded
-  - Frontend asks for confirmation before closing jobs, rejecting applications, and recording pass/fail results
-
-## Current Structure
-
-- `backend/config.py`: environment-backed runtime settings
-- `backend/db.py`: engine and session management
-- `backend/models.py`: SQLAlchemy 2.0 ORM models
-- `backend/crud.py`: all database access and workflow functions
-- `backend/smoke_test.py`: minimal backend verification
-- `frontend/app.py`: Streamlit entrypoint and top-level routing
-- `frontend/session.py`: auth/session-state helpers
-- `frontend/components.py`: shared layout, table, and metric helpers
-- `frontend/pages/auth.py`: login page
-- `frontend/pages/employer.py`: employer screens
-- `frontend/pages/candidate.py`: candidate screens
-- `database/`: schema, seed, views, routines, triggers, and security scripts
-
-## Web Deployment Architecture
-
-For cloud deployment, the recommended architecture is:
-
-- `Railway MySQL` as the managed relational database
-- `Render` as the globally accessible backend API host
-- `Vercel` as the modern Next.js frontend host
-- `Streamlit Community Cloud` as the legacy dashboard host if you still want to keep it available
-
-This separation is appropriate for academic and demonstration purposes because it preserves the current project stack while assigning one clear responsibility to each platform:
-
-- the database layer remains compatible with the MySQL-specific schema, views, routines, and triggers
-- the backend layer exposes HTTP endpoints through FastAPI for both read models and workflow routines
-- the frontend layer can be deployed independently as a polished React/Next.js web app
-
-The project already includes deployment-oriented files:
-
-- `backend/api.py`: FastAPI entrypoint for Render deployment
-- `render.yaml`: Render service definition
-- `web/`: Next.js frontend using Tailwind CSS, shadcn-style UI components, Recharts, and TanStack Table
-- `streamlit_app.py`: root Streamlit entrypoint for Community Cloud
-- `.streamlit/secrets.toml.example`: secrets template for Streamlit Cloud
-- `Dockerfile`: backend FastAPI container for Railway Docker deployment
-- `railway.toml`: Railway Docker build and health-check config
-- `database/cloud_01_schema.sql`
-- `database/cloud_00_reset.sql`
-- `database/cloud_seed_510.sql`
-- `database/cloud_02_views.sql`
-- `database/cloud_03_routines.sql`
-- `database/cloud_04_triggers.sql`
-- `database/cloud_06_admin_security_audit.sql`
-- `database/CLOUD_IMPORT_ORDER.md`
-
-## Railway MySQL Deployment
-
-### Objective
-
-The purpose of Railway in this architecture is to host the production database externally so that both Render and Streamlit Community Cloud can connect to the same shared dataset.
-
-### Procedure
-
-1. Create a new project on Railway.
-2. Add a `MySQL` database service.
-3. Open the service variables and record the following values:
-   - `MYSQLHOST`
-   - `MYSQLPORT`
-   - `MYSQLUSER`
-   - `MYSQLPASSWORD`
-   - `MYSQLDATABASE`
-4. Use the public TCP proxy values, not the private internal hostname, when connecting from your own computer:
-   - `RAILWAY_TCP_PROXY_DOMAIN`
-   - `RAILWAY_TCP_PROXY_PORT`
-5. Connect to the Railway database using MySQL Workbench or another MySQL client.
-6. Select the target schema, usually `railway`.
-7. If you do not need the current data, run the destructive reset first:
-   - `database/cloud_00_reset.sql`
-8. Import the SQL files in this order:
-   - `database/cloud_01_schema.sql`
-   - `database/cloud_seed_510.sql`
-   - `database/cloud_02_views.sql`
-   - `database/cloud_03_routines.sql`
-   - `database/cloud_04_triggers.sql`
-   - `database/cloud_06_admin_security_audit.sql`
-
-### Verification
-
-After import, verify that the base tables contain data:
+After import, verify the main tables:
 
 ```sql
 SELECT COUNT(*) FROM Accounts;
@@ -236,78 +191,112 @@ SELECT COUNT(*) FROM Applications;
 SELECT COUNT(*) FROM Interviews;
 ```
 
-### Important Note
+## Running Locally
 
-`database/05_security.sql` is intentionally not part of the recommended Railway import workflow. Managed cloud MySQL environments often restrict role and privilege operations, and these statements are not required for the current application deployment.
+### FastAPI backend
 
-## Railway Docker Backend Deployment
-
-### Objective
-
-Use the root `Dockerfile` when you want Railway to build and run the FastAPI backend as a Docker service. This replaces the Render backend deployment for the API layer.
-
-### Procedure
-
-1. Push the repository to GitHub.
-2. In Railway, create a new service from the GitHub repository.
-3. Railway should detect the root `Dockerfile` and `railway.toml`.
-4. Add these backend environment variables:
-
-```env
-DB_HOST=YOUR_RAILWAY_MYSQL_HOST_OR_TCP_PROXY_DOMAIN
-DB_PORT=YOUR_RAILWAY_MYSQL_PORT_OR_TCP_PROXY_PORT
-DB_USER=YOUR_MYSQL_USER
-DB_PASSWORD=YOUR_MYSQL_PASSWORD
-DB_NAME=YOUR_MYSQL_DATABASE
-DB_ECHO=false
-JWT_SECRET=YOUR_LONG_RANDOM_SECRET
-JWT_EXP_MINUTES=120
-FRONTEND_ORIGINS=http://localhost:3000,https://your-frontend-domain
+```powershell
+uvicorn backend.api:app --reload --host 0.0.0.0 --port 8000
 ```
 
-5. Deploy and verify:
+Useful endpoints:
 
 ```text
-https://your-railway-api-domain/health
-https://your-railway-api-domain/docs
+http://localhost:8000/
+http://localhost:8000/health
+http://localhost:8000/docs
+http://localhost:8000/smoke-test
 ```
 
-### Optional MySQL Docker Image
+### Next.js frontend
 
-`database/Dockerfile.mysql` can build a fresh seeded MySQL image from the cloud SQL files. Use this only for demos or experiments, and mount a Railway volume at `/var/lib/mysql` if you want the data to survive redeploys. For normal use, the Railway managed MySQL service is safer and easier to operate.
+```powershell
+cd web
+npm run dev
+```
 
-## Render Backend Deployment
+Open:
 
-### Objective
+```text
+http://localhost:3000
+```
 
-The purpose of Render in this project is to publish the backend as a globally reachable HTTP service. This enables external validation of backend availability and provides a foundation for future frontend-to-API integration.
+### Backend smoke test
 
-### Procedure
+```powershell
+python -m backend.smoke_test
+```
 
-1. Push the repository to GitHub.
-2. In Render, create a new `Web Service`.
-3. Connect the GitHub repository.
-4. Use the following runtime configuration:
+The smoke test verifies database connection, demo login, dashboard data, open job listing, and candidate application/interview access.
 
-- Build Command:
+### Optional legacy Streamlit app
+
+```powershell
+streamlit run frontend/app.py
+```
+
+The Streamlit app is kept as a legacy interface. The current primary frontend is the Next.js app in `web/`.
+
+## Demo Accounts
+
+Seeded demo logins use:
+
+```text
+Password: 1
+```
+
+Example accounts:
+
+```text
+Employer:  employer0001@example.com
+Candidate: candidate0001@example.com
+Admin:     admin@example.com
+```
+
+After importing `database/cloud_06_admin_security_audit.sql`, sign in as admin and reset the demo admin password before using a public deployment.
+
+## Deployment
+
+### Recommended architecture
+
+```text
+Vercel Next.js frontend
+        |
+        | REST API + JWT
+        v
+Render FastAPI backend
+        |
+        | SQLAlchemy + mysql-connector-python
+        v
+Railway MySQL database
+```
+
+The frontend never connects directly to MySQL. All database access goes through the FastAPI backend so authentication, authorization, validation, ownership checks, notifications, and audit logs can be enforced in one place.
+
+### Railway MySQL
+
+1. Create a Railway project.
+2. Add a MySQL database service.
+3. Use the public TCP proxy values when connecting from Render, GitHub Actions, or your own machine:
+   - `RAILWAY_TCP_PROXY_DOMAIN`
+   - `RAILWAY_TCP_PROXY_PORT`
+4. Import the cloud SQL files in the documented order.
+
+### Render backend
+
+Create a Render Web Service with:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-- Start Command:
+Start command:
 
 ```bash
 uvicorn backend.api:app --host 0.0.0.0 --port $PORT
 ```
 
-- Health Check Path:
-
-```text
-/health
-```
-
-5. Add the following environment variables in Render:
+Required environment variables:
 
 ```env
 DB_HOST=YOUR_RAILWAY_TCP_PROXY_DOMAIN
@@ -318,144 +307,115 @@ DB_NAME=YOUR_MYSQL_DATABASE
 DB_ECHO=false
 JWT_SECRET=YOUR_LONG_RANDOM_SECRET
 JWT_EXP_MINUTES=120
-```
-
-The included `render.yaml` file already expresses this deployment model and may be used directly.
-
-### Verification
-
-After deployment, the following endpoints should be reachable:
-
-- `/`
-- `/health`
-- `/docs`
-- `/smoke-test`
-- `/auth/login`
-- `/jobs/open`
-
-Example:
-
-```text
-https://your-render-service.onrender.com/health
-```
-
-Set `FRONTEND_ORIGINS` on Render after the Vercel frontend is created:
-
-```env
 FRONTEND_ORIGINS=https://your-vercel-app.vercel.app,http://localhost:3000
 ```
 
-## Next.js Frontend Deployment
+### Vercel frontend
 
-### Objective
-
-The `web/` directory contains the modern frontend intended for Vercel. It calls the Render backend through REST, while the backend continues to use the MySQL views, functions, stored procedures, and triggers behind the API routes.
-
-### Local Development
-
-```powershell
-cd web
-npm install
-npm run dev
-```
-
-Create `web/.env.local`:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=https://your-render-service.onrender.com
-```
-
-### Vercel Deployment
-
-1. Push the repository to GitHub.
-2. Create a new Vercel project from the repository.
-3. Set the Vercel root directory to:
+1. Create a Vercel project from the GitHub repository.
+2. Set the root directory to:
 
 ```text
 web
 ```
 
-4. Add the frontend environment variable:
+3. Add:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=https://your-render-service.onrender.com
 ```
 
-5. Redeploy the Render backend after setting `FRONTEND_ORIGINS` to the final Vercel URL.
+4. Redeploy Render after setting `FRONTEND_ORIGINS` to the final Vercel URL.
 
-## Streamlit Community Cloud Deployment
+## Backup and Recovery
 
-### Objective
+The project includes GitHub Actions automation for database backups.
 
-The Streamlit app is now optional. Keep it as a legacy dashboard if you still want the original interface available.
+### Automated backup
 
-### Procedure
-
-1. Open Streamlit Community Cloud.
-2. Create a new app from the GitHub repository.
-3. Set the main app file to:
+Workflow file:
 
 ```text
-streamlit_app.py
+.github/workflows/mysql-backup.yml
 ```
 
-4. In the app settings, add secrets using the format from `.streamlit/secrets.toml.example`:
+The workflow runs every day at `23:00` Vietnam time (`16:00` UTC):
 
-```toml
-DB_HOST = "YOUR_RAILWAY_TCP_PROXY_DOMAIN"
-DB_PORT = "YOUR_RAILWAY_TCP_PROXY_PORT"
-DB_USER = "YOUR_MYSQL_USER"
-DB_PASSWORD = "YOUR_MYSQL_PASSWORD"
-DB_NAME = "YOUR_MYSQL_DATABASE"
-DB_ECHO = "false"
-API_BASE_URL = "https://your-render-service.onrender.com"
+```yaml
+on:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
 ```
 
-### Verification
+`workflow_dispatch` allows manual testing from:
 
-Once deployed, verify that:
-
-- the login page loads successfully
-- employer accounts can open the employer workspace
-- candidate accounts can open the candidate workspace
-- seeded demo accounts still authenticate correctly
-
-## Local-to-Cloud Configuration Mapping
-
-The same database configuration pattern is used across local and cloud environments. The only difference is the host and port values.
-
-### Local Example
-
-```env
-DB_HOST=127.0.0.1
-DB_PORT=3306
-DB_USER=root
-DB_PASSWORD=YOUR_LOCAL_PASSWORD
-DB_NAME=recruitment_management_system
-DB_ECHO=false
+```text
+GitHub -> Actions -> MySQL Backup -> Run workflow
 ```
 
-### Railway/Cloud Example
+### Required GitHub Secrets
 
-```env
-DB_HOST=YOUR_RAILWAY_TCP_PROXY_DOMAIN
-DB_PORT=YOUR_RAILWAY_TCP_PROXY_PORT
-DB_USER=YOUR_MYSQL_USER
-DB_PASSWORD=YOUR_MYSQL_PASSWORD
-DB_NAME=YOUR_MYSQL_DATABASE
-DB_ECHO=false
-JWT_SECRET=YOUR_LONG_RANDOM_SECRET
-JWT_EXP_MINUTES=120
+Create these as separate repository secrets:
+
+```text
+DB_HOST
+DB_PORT
+DB_USER
+DB_PASSWORD
+DB_NAME
 ```
 
-## Suggested Deployment Order
+Do not put `DB_HOST=value` into one secret. In GitHub Secrets UI:
 
-For stability, deploy in the following sequence:
+```text
+Name:   DB_HOST
+Secret: RAILWAY_TCP_PROXY_DOMAIN
+```
 
-1. Provision Railway MySQL.
-2. If resetting an existing Railway database, run `database/cloud_00_reset.sql`.
-3. Import schema, seed data, views, routines, triggers, and `cloud_06_admin_security_audit.sql`.
-4. Deploy the backend on Render or Railway Docker and verify `/health`.
-5. Deploy the Next.js frontend and set `NEXT_PUBLIC_API_BASE_URL` to the backend URL.
+The same pattern applies to `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME`.
 
-This order is recommended because both application layers depend on a valid, preloaded database before they can function correctly.
+### Where backups are stored
+
+Backups are not committed into the repository. They are uploaded as GitHub Actions artifacts:
+
+```text
+GitHub -> Actions -> MySQL Backup -> select a run -> Artifacts
+```
+
+Artifact retention is set to 7 days. Backup files may contain sensitive data, so they should not be committed to GitHub.
+
+### Recovery
+
+Download and extract a backup artifact, set local database environment variables, then run:
+
+```powershell
+.\database\backup\restore_mysql.ps1 -BackupFile ".\backups\recruitment_mysql_backup_YYYYMMDD_HHMMSS_utc.sql.gz"
+```
+
+The restore script asks for confirmation before importing:
+
+```text
+Type RESTORE to continue
+```
+
+Recovery is manual by design because it can overwrite current production data.
+
+### Disable backup automation
+
+After the project, disable it by one of these methods:
+
+- Delete `.github/workflows/mysql-backup.yml` and push the deletion.
+- Disable the workflow from the GitHub Actions page.
+- Remove the database secrets from repository settings.
+
+## Security Notes
+
+- Never commit `.env`, `.env.local`, database passwords, Railway credentials, or backup files.
+- Backup files can contain email addresses, password hashes, candidate profiles, employer details, interview notes, notifications, and audit logs.
+- `database/05_security.sql` is not part of the recommended Railway import flow because managed cloud MySQL services often restrict role and privilege statements.
+- The frontend is not a security boundary. All sensitive checks are enforced by the backend.
+
+## Report and Presentation Files
+
+The repository may also contain LaTeX report or presentation files used for the final project submission. They are documentation artifacts and are separate from the running application.
