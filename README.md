@@ -89,7 +89,7 @@ database/
   cloud_02_views.sql                 Views
   cloud_03_routines.sql              Stored procedures and functions
   cloud_04_triggers.sql              Triggers
-  cloud_06_admin_security_audit.sql  Admin, audit, and notification extension
+  cloud_05_admin_security_audit.sql  Admin, audit, and notification extension
   CLOUD_IMPORT_ORDER.md              Cloud import instructions
   backup/
     README.md              Backup/recovery documentation
