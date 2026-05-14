@@ -418,6 +418,3 @@ After the project, disable it by one of these methods:
 - `database/05_security.sql` is not part of the recommended Railway import flow because managed cloud MySQL services often restrict role and privilege statements.
 - The frontend is not a security boundary. All sensitive checks are enforced by the backend.
 
-## Report and Presentation Files
-
-The repository may also contain LaTeX report or presentation files used for the final project submission. They are documentation artifacts and are separate from the running application.
