@@ -122,3 +122,12 @@ CREATE INDEX idx_applications_status
 
 CREATE INDEX idx_interviews_date
     ON Interviews (InterviewDate);
+
+CREATE INDEX idx_notifications_account_created
+    ON Notifications (AccountID, CreatedAt);
+
+CREATE INDEX idx_auditlogs_created
+    ON AuditLogs (CreatedAt);
+
+CREATE INDEX idx_auditlogs_actor_created
+    ON AuditLogs (ActorAccountID, CreatedAt);
