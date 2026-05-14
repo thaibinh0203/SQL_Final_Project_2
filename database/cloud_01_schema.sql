@@ -5,6 +5,7 @@ CREATE TABLE Accounts (
     Email VARCHAR(150) NOT NULL,
     PasswordHash VARCHAR(255) NOT NULL,
     Role ENUM('Employer', 'Candidate') NOT NULL,
+    AccountStatus ENUM('Active', 'Disabled') NOT NULL DEFAULT 'Active',
     CreatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_accounts_email UNIQUE (Email)
 );
@@ -16,6 +17,7 @@ CREATE TABLE Employers (
     ContactNumber VARCHAR(20) NULL,
     Address TEXT NULL,
     Description TEXT NULL,
+    ApprovalStatus ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Approved',
     CONSTRAINT uq_employers_account UNIQUE (AccountID),
     CONSTRAINT fk_employers_account
         FOREIGN KEY (AccountID) REFERENCES Accounts (AccountID)

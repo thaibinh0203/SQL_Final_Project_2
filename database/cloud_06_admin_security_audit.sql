@@ -1,11 +1,39 @@
 ALTER TABLE Accounts
     MODIFY Role ENUM('Employer', 'Candidate', 'Admin') NOT NULL;
 
-ALTER TABLE Accounts
-    ADD COLUMN AccountStatus ENUM('Active', 'Disabled') NOT NULL DEFAULT 'Active';
+SET @account_status_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'Accounts'
+      AND column_name = 'AccountStatus'
+);
 
-ALTER TABLE Employers
-    ADD COLUMN ApprovalStatus ENUM('Pending', 'Approved', 'Rejected') NOT NULL DEFAULT 'Approved';
+SET @account_status_sql := IF(
+    @account_status_exists = 0,
+    'ALTER TABLE Accounts ADD COLUMN AccountStatus ENUM(''Active'', ''Disabled'') NOT NULL DEFAULT ''Active''',
+    'DO 0'
+);
+PREPARE account_status_stmt FROM @account_status_sql;
+EXECUTE account_status_stmt;
+DEALLOCATE PREPARE account_status_stmt;
+
+SET @approval_status_exists := (
+    SELECT COUNT(*)
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'Employers'
+      AND column_name = 'ApprovalStatus'
+);
+
+SET @approval_status_sql := IF(
+    @approval_status_exists = 0,
+    'ALTER TABLE Employers ADD COLUMN ApprovalStatus ENUM(''Pending'', ''Approved'', ''Rejected'') NOT NULL DEFAULT ''Approved''',
+    'DO 0'
+);
+PREPARE approval_status_stmt FROM @approval_status_sql;
+EXECUTE approval_status_stmt;
+DEALLOCATE PREPARE approval_status_stmt;
 
 INSERT INTO Accounts (Email, PasswordHash, Role, AccountStatus)
 SELECT 'admin@example.com', 'sha256$admin-demo', 'Admin', 'Active'
