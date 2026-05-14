@@ -1,4 +1,4 @@
-# Link to the web : https://sql-final-project-2-pz5w.vercel.app/
+# Link to the web : https://sql-final-project-2.vercel.app/
 
 # Recruitment Management System
 
