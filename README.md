@@ -1,4 +1,5 @@
 # Link to the web : https://sql-final-project-2.vercel.app/
+Due to the fact that this project is using free version of Render, first few actions can takes a little longer processing time as these actions have to wait for the backend to wake up first, afterwards the process and actions will be a lot faster !!!
 
 # Recruitment Management System
 
