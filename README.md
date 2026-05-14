@@ -1,3 +1,5 @@
+# Link to the web : https://sql-final-project-2-pz5w.vercel.app/
+
 # Recruitment Management System
 
 A full-stack recruitment management system for SQL Final Project 2. The project combines a MySQL database, FastAPI backend, Next.js frontend, optional legacy Streamlit interface, and cloud deployment support.
