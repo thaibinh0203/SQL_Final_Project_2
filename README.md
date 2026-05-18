@@ -15,7 +15,7 @@ The system supports candidate registration, employer job posting, application tr
 | Backend | Python 3, FastAPI, Uvicorn, SQLAlchemy, mysql-connector-python, Pydantic-style request models |
 | Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS, TanStack Table, Recharts, Lucide React |
 | Legacy UI | Streamlit, pandas, streamlit-option-menu |
-| Deployment | Railway MySQL, Render backend, Vercel frontend, optional Railway Docker backend |
+| Deployment | Railway MySQL, Render backend, Vercel frontend |
 | Operations | GitHub Actions cron backup, PowerShell restore script |
 
 ## Main Features
@@ -112,8 +112,6 @@ frontend/
 
 render.yaml              Render backend deployment definition
 railway.toml             Railway Docker backend config
-Dockerfile               Backend Dockerfile
-docker-compose.yml       Local MySQL support
 requirements.txt         Python dependencies
 ```
 
